@@ -1,13 +1,11 @@
-#!/bin/bash
-
 #*******************************************
 # lsb-release
 #*******************************************
 cat <<EOF > "$TMP_DIR/etc/lsb-release"
-DISTRIB_ID=$DISTRIB_ID
-DISTRIB_RELEASE=$DISTRIB_RELEASE
-DISTRIB_CODENAME=$DISTRIB_CODENAME
-DISTRIB_DESCRIPTION=$DISTRIB_DESCRIPTION
+DISTRIB_ID="$DISTRIB_ID"
+DISTRIB_RELEASE="$DISTRIB_RELEASE"
+DISTRIB_CODENAME="$DISTRIB_CODENAME"
+DISTRIB_DESCRIPTION="$DISTRIB_DESCRIPTION"
 EOF
 
 #*******************************************
@@ -31,13 +29,16 @@ EOF
 # Grub configuration
 #*******************************************
 
+# Configuração GRUB corrigida para templates.sh
+
 cat <<EOF > "$BUILD_DIR/$EFI_DIR/grub.cfg"
 insmod gfxterm
 terminal_output gfxterm
 
+loadfont DejaVuSans
+
 set theme=\$prefix/themes/$DISTRIB_ID/theme.txt
 set gfxmode="auto"
-set gfxpayload="keep"
 
 insmod all_video
 insmod png
@@ -50,26 +51,42 @@ set timeout="15"
 set timeout_style="menu"
 
 menuentry "Start $DISTRIB_ID in Live Mode" --class linux {
-    search --set=root --file /casper/vmlinuz
-    linux /casper/vmlinuz boot=casper quiet splash ---
-    initrd /casper/initrd
+    set gfxpayload=keep
+    linux	/casper/vmlinuz boot=casper username=spec hostname=SpectrumOS quiet splash ---
+    initrd	/casper/initrd
+}
+
+menuentry "Start $DISTRIB_ID (Safe Graphics)" --class linux {
+    set gfxpayload=keep
+    linux	/casper/vmlinuz boot=casper username=spec hostname=SpectrumOS nomodeset quiet splash ---
+    initrd	/casper/initrd
+}
+
+menuentry "Start $DISTRIB_ID (Debug Mode)" --class linux {
+    set gfxpayload=keep
+    linux	/casper/vmlinuz boot=casper username=spec hostname=SpectrumOS debug ---
+    initrd	/casper/initrd
 }
 
 menuentry "Automatic Install $DISTRIB_ID" --class install {
-    search --set=root --file /casper/vmlinuz
-    linux /casper/vmlinuz autoinstall quiet splash ---
-    initrd /casper/initrd
+    set gfxpayload=keep
+    linux	/casper/vmlinuz boot=casper username=spec hostname=SpectrumOS autoinstall quiet splash ---
+    initrd	/casper/initrd
 }
 
-menuentry "Memoy Test" --class memtest {
-    linux16 /boot/memtest86+x64.bin
+grub_platform
+if [ "\$grub_platform" = "efi" ]; then
+menuentry 'Boot from next volume' {
+	exit 1
 }
-
-menuentry "Start from first HD" --class hdd {
-    set root='(hd0)'
-    chainloader +1
-    boot
+menuentry 'UEFI Firmware Settings' {
+	fwsetup
 }
+else
+menuentry 'Test memory' {
+	linux16 /boot/memtest86+x64.bin
+}
+fi
 
 menuentry "Reboot" --class reboot {
     reboot
@@ -80,11 +97,24 @@ menuentry "Shutdown" --class shutdown {
 }
 EOF
 
+cat <<EOF > "$BUILD_DIR/$EFI_DIR/loopback.cfg"
+
+menuentry "Try or Install $DISTRIB_ID" {
+	set gfxpayload=keep
+	linux	/casper/vmlinuz  iso-scan/filename=\${iso_path} --- quiet splash
+	initrd	/casper/initrd
+}
+menuentry "$DISTRIB_ID (safe graphics)" {
+	set gfxpayload=keep
+	linux	/casper/vmlinuz nomodeset  iso-scan/filename=\${iso_path} --- quiet splash
+	initrd	/casper/initrd
+}
+EOF
+
+
 #*******************************************
 # Grub Theme
 #*******************************************
-
-
 cat <<EOF > "$BUILD_DIR/$EFI_DIR/themes/$DISTRIB_ID/theme.txt"
 title-text:""
 title-font:"DejaVu Sans Regular 32"

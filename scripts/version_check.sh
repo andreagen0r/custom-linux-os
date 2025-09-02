@@ -1,109 +1,143 @@
 #!/bin/bash
 
+set -e                  # Exit on error
+set -o pipefail         # Exit on pipeline error
+set -u                  # Treat unset variable as error
+
+# Define current source directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PARENT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Include logging functions
+source $SCRIPT_DIR/logging.sh
+
+if [ -z "$1" ]; then
+    log_error "Error: No parameters provided."
+    log_info "Use: $0 <directory>"
+    exit 1
+fi
+
+if [ ! -d "$1" ]; then
+    log_error "Error: '$1' is not a valid directory."
+    exit 1
+fi
+
 LC_ALL=C 
 PATH=/usr/bin:/bin
+
+export PATH="/usr/sbin:/sbin:$PATH"
 
 bail() { log_error "FATAL: $1"; exit 1; }
 grep --version > /dev/null 2> /dev/null || bail "grep does not work"
 sed '' /dev/null || bail "sed does not work"
 sort   /dev/null || bail "sort does not work"
 
-ver_check()
-{
-   if ! type -p $2 &>/dev/null
-   then 
-     printf "❌: Cannot find $2 ($1)"; return 1; 
-   fi
+ver_check() {
+    local name="$1"
+    local cmd="$2"
+    local req_ver="$3"
+    local v=""
 
-  if $2 --version &>/dev/null
-   then
-     v=$($2 --version 2>&1 | grep -E -o '[0-9]+\.[0-9\.]+[a-z]*' | head -n1)
-   elif $2 -version &>/dev/null
-   then
-     v=$($2 -version 2>&1 | grep -E -o '[0-9]+\.[0-9\.]+[a-z]*' | head -n1)
-   else
-      printf "❌: Unable to get version for $2 ($1)\n"
+   if ! command -v "$cmd" &>/dev/null; then
+      printf "${RED}[  ERROR  ] Cannot find %s (%s)${NC}\n" "$cmd" "$name"
       return 1
    fi
 
-   if printf '%s\n' $3 $v | sort --version-sort --check &>/dev/null
-   then 
-     printf "✅: %-9s %-6s >= $3\n" "$1" "$v"; return 0;
-   else 
-     printf "❌: %-9s is TOO OLD ($3 or later required)\n" "$1"; 
-     return 1; 
+   local getVersionRegx='[0-9]+\.[0-9]+(\.[0-9]+)?'
+
+   if v=$("$cmd" --version 2>&1 | grep -oE $getVersionRegx | head -n1); then
+      : 
+   elif v=$("$cmd" -version 2>&1 | grep -oE $getVersionRegx | head -n1); then
+      : 
+   else
+      printf "${RED}[  ERROR  ] Unable to get version for %s (%s)${NC}\n" "$cmd" "$name"
+      return 1
+   fi
+
+
+   if [ -z "$v" ]; then
+      printf "${RED}[  ERROR  ] Unable to parse version for %s (%s)${NC}\n" "$cmd" "$name"
+      return 1
+   fi
+
+
+   if printf '%s\n' "$req_ver" "$v" | sort -V -C &>/dev/null; then
+      printf "${GREEN}[ SUCCESS ] %-20s %-10s >= %s${NC}\n" "$name" "$v" "$req_ver"
+      return 0
+   else
+      printf "${RED}[  ERROR  ] %s %s is TOO OLD (%s or later required)${NC}\n" "$name" "$v" "$req_ver"
+      return 1
    fi
 }
 
-ver_kernel()
-{
+ver_kernel() {
    kver=$(uname -r | grep -E -o '^[0-9\.]+')
    if printf '%s\n' $1 $kver | sort --version-sort --check &>/dev/null
    then 
-     printf "✅: Linux Kernel $kver >= $1\n"; return 0;
+     log_success "Linux Kernel $kver >= $1"; return 0;
    else 
-     printf "❌: Linux Kernel ($kver) is TOO OLD ($1 or later required)\n" "$kver"; 
+     log_error "Linux Kernel ($kver) is TOO OLD ($1 or later required)\n"; 
      return 1; 
    fi
 }
 
 alias_check() {
    if $1 --version 2>&1 | grep -qi "$2"; then
-      # printf "✅: %-4s is %-10s%s\n" "$1" "$2" "${3:+ - $3}"
-      printf "✅: %-4s is $2\n" "$1";
+      log_success $1 is $2
    else
-      printf "❌: %-4s is NOT %-6s%s\n" "$1" "$2" "${3:+ - $3}"
+      log_error "$1 is NOT $2\n ${3:+      Tip: $3}"
    fi
 }
 
-log_info "Tools"
+
 # Coreutils first because --version-sort needs Coreutils >= 7.0
 ver_check Coreutils           sort                  8.1 || bail "Coreutils too old, stop"
-ver_check Bash                bash                  3.2
-ver_check Binutils            ld                    2.13.1
-ver_check Xorriso             xorriso               1.5.6
-ver_check Squashfs-tools      mksquashfs            4.6.1
-ver_check Mtools              mtools                4.0.43
-ver_check Sed                 sed                   4.1.5
-ver_check Tar                 tar                   1.22
-ver_check Xz                  xz                    5.0.0
-ver_check GCC                 gcc                   5.2
-ver_check "GCC (C++)"         g++                   5.2
-ver_check Grep                grep                  2.5.1a
-ver_check Gzip                gzip                  1.3.12
-ver_check Make                make                  4.0
-# ver_check Mkfs-vfat           mkfs.vfat             4.2 # TODO: corrigir
-# ver_check Debootstrap         debootstrap           1.0.13
-# ver_check Grub-pc-bin         grub-pc-bin 
-# ver_check Grub-efi-ia32-bin   grub-efi-ia32-bin 
-# ver_check Grub-efi-amd64-bin  grub-efi-amd64-bin 
-# ver_check Bison          bison    2.7
-# ver_check Diffutils      diff     2.8.1
-# ver_check Findutils      find     4.2.31
-# ver_check Gawk           gawk     4.0.1
-# ver_check M4             m4       1.4.10
-# ver_check Patch          patch    2.5.4
-# ver_check Perl           perl     5.8.8
-# ver_check Python         python3  3.4
-# ver_check Texinfo        texi2any 5.0
-ver_kernel 5.4 
+ver_kernel 5.14 
 
+CHECKS_FILE="$PARENT_DIR/$1/checks.txt"
+
+while IFS= read -r line; do
+    # Ignore empty lines or lines starting with #
+    [ -z "$line" ] && continue
+    [[ "$line" =~ ^# ]] && continue
+
+    parsed_line=$(echo "$line" | sed -E 's/(.*)\s+(\S+)\s+(\S+)$/\1|\2|\3/')
+
+    IFS='|' read -r nome cmd versao <<< "$parsed_line"
+    
+    nome="${nome//\"/}" # Remove aspas
+    nome=$(echo "$nome" | sed 's/^[ \t]*//;s/[ \t]*$//') # trim
+
+    ver_check "$nome" "$cmd" "$versao"
+
+# Read the file
+done < "$CHECKS_FILE"
+
+#*******************************************
+log_title "Kernel check"
+#*******************************************
 if mount | grep -q 'devpts on /dev/pts' && [ -e /dev/ptmx ]
-then echo "✅: Linux Kernel supports UNIX 98 PTY";
-else echo "❌: Linux Kernel does NOT support UNIX 98 PTY"; fi
+then log_success "Linux Kernel supports UNIX 98 PTY";
+else log_warn "Linux Kernel does NOT support UNIX 98 PTY"; fi
 
-
-log_info "Aliases:"
+#*******************************************
+log_title "Symlink check"
+#*******************************************
 alias_check sh Bash "Remove de symlink with \"sudo rm /bin/sh\" and add new symlink \"sudo ln -s /bin/bash /bin/sh\""
 
-log_info "Compiler check:"
+#*******************************************
+log_title "Compiler check"
+#*******************************************
 if printf "int main(){}" | g++ -x c++ -
-then echo "✅: g++ works";
-else echo "❌: g++ does NOT work"; fi
+then log_success "g++ works";
+else log_error "g++ does NOT work"; fi
 rm -f a.out
 
+#*******************************************
+log_title "Processing units available"
+#*******************************************
 if [ "$(nproc)" = "" ]; then
-   echo "❌: nproc is not available or it produces empty output"
+   log_error "nproc is not available or it produces empty output"
 else
-   echo "✅: nproc reports $(nproc) logical cores are available"
+   log_success "$(nproc) logical cores are available"
 fi
